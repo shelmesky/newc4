@@ -280,31 +280,39 @@ void expr(int lev)
   }
 }
 
+// 解析各种语句
 void stmt()
 {
   int *a, *b;
 
+  // 解析if语句
   if (tk == If) {
-    next();
+    next(); 
     if (tk == '(') next(); else { printf("%d: open paren expected\n", line); exit(-1); }
+    // 解析if语句中的表达式
     expr(Assign);
     if (tk == ')') next(); else { printf("%d: close paren expected\n", line); exit(-1); }
-    *++e = BZ; b = ++e;
+    *++e = BZ;  // 生成BZ指令
+    b = ++e;    // 预保存BZ下一条指令本身的地址的变量，下面b将会保存else语句开始的地址
     stmt();
     if (tk == Else) {
-      *b = (int)(e + 3); *++e = JMP; b = ++e;
+      *b = (int)(e + 3);    // e+3保存的是else语句真正开始的地址
+      *++e = JMP;           // 插入JMP指令
+      b = ++e;              // 预保存JMP下一条指令本身的地址
       next();
       stmt();
     }
-    *b = (int)(e + 1);
+    *b = (int)(e + 1);      // 在if和else的结束JMP到下一条指令
   }
+  // 解析while语句
   else if (tk == While) {
     next();
     a = e + 1;
     if (tk == '(') next(); else { printf("%d: open paren expected\n", line); exit(-1); }
-    expr(Assign);
+    expr(Assign);   // 解析if中的while表达式
     if (tk == ')') next(); else { printf("%d: close paren expected\n", line); exit(-1); }
-    *++e = BZ; b = ++e;
+    *++e = BZ;  // 生成BZ指令
+    b = ++e;
     stmt();
     *++e = JMP; *++e = (int)a;
     *b = (int)(e + 1);
@@ -343,15 +351,18 @@ int main(int argc, char **argv)
   if ((fd = open(*argv, 0)) < 0) { printf("could not open(%s)\n", *argv); return -1; }
 
   poolsz = 256*1024; // arbitrary size
+  // 依次为符号表、text段、数据段、栈段申请内存
   if (!(sym = malloc(poolsz))) { printf("could not malloc(%d) symbol area\n", poolsz); return -1; }
   if (!(le = e = malloc(poolsz))) { printf("could not malloc(%d) text area\n", poolsz); return -1; }
   if (!(data = malloc(poolsz))) { printf("could not malloc(%d) data area\n", poolsz); return -1; }
   if (!(sp = malloc(poolsz))) { printf("could not malloc(%d) stack area\n", poolsz); return -1; }
 
+  // 初始化内存
   memset(sym,  0, poolsz);
   memset(e,    0, poolsz);
   memset(data, 0, poolsz);
 
+  // 将代表的这些关键字依次加入到符号表
   p = "char else enum if int return sizeof while "
       "open read close printf malloc free memset memcmp exit void main";
   i = Char; while (i <= While) { next(); id[Tk] = i++; } // add keywords to symbol table
@@ -359,6 +370,7 @@ int main(int argc, char **argv)
   next(); id[Tk] = Char; // handle void type
   next(); idmain = id; // keep track of main
 
+  // 未source area申请内存，并将命令行参数的源码文件读入
   if (!(lp = p = malloc(poolsz))) { printf("could not malloc(%d) source area\n", poolsz); return -1; }
   if ((i = read(fd, p, poolsz-1)) <= 0) { printf("read() returned %d\n", i); return -1; }
   p[i] = 0;
@@ -368,42 +380,48 @@ int main(int argc, char **argv)
   line = 1;
   next();
   while (tk) {
-    bt = INT; // basetype
-    if (tk == Int) next();
-    else if (tk == Char) { next(); bt = CHAR; }
-    else if (tk == Enum) {
+    bt = INT; // basetype 基本类型，因为系统只支持int或char类型(和指针类型)
+    if (tk == Int) next(); // 是int型则跳过，因为上一句已经指定int类型
+    else if (tk == Char) { next(); bt = CHAR; } // 如果是char类型
+    else if (tk == Enum) {  // 枚举声明
       next();
-      if (tk != '{') next();
+      if (tk != '{') next(); // 忽略enum的名称
       if (tk == '{') {
         next();
-        i = 0;
+        i = 0;  // 在Enum中初始化i为0
         while (tk != '}') {
           if (tk != Id) { printf("%d: bad enum identifier %d\n", line, tk); return -1; }
           next();
           if (tk == Assign) {
             next();
             if (tk != Num) { printf("%d: bad enum initializer\n", line); return -1; }
-            i = ival;
+            i = ival;   // 如果Enum中出现赋值语句，则将i赋值为对应的值
             next();
           }
-          id[Class] = Num; id[Type] = INT; id[Val] = i++;
+          id[Class] = Num; id[Type] = INT; id[Val] = i++;   // id[Val] = i++ Enum中值是自增的
           if (tk == ',') next();
         }
         next();
       }
     }
+    // 上面解析了int或char关键字
+    // int或char后面跟enum或者全局变量声明
     while (tk != ';' && tk != '}') {
       ty = bt;
-      while (tk == Mul) { next(); ty = ty + PTR; }
-      if (tk != Id) { printf("%d: bad global declaration\n", line); return -1; }
+      while (tk == Mul) { next(); ty = ty + PTR; } // 如果发现一个*，说明是指针类型
+      // 如果发现int/char *后面跟的不是Id类型则不是一个正常的全局变量声明
+      if (tk != Id) { printf("%d: bad global declaration\n", line); return -1; } 
+      // 如果id[Class]不为空值，说明重复声明了全局变量
+      // 因为下面if == '(' 逻辑之后有else逻辑给id[Class]赋值为Glo
       if (id[Class]) { printf("%d: duplicate global definition\n", line); return -1; }
       next();
       id[Type] = ty;
+      // 向前看一个字符，先是(，则是函数定义
       if (tk == '(') { // function
         id[Class] = Fun;
-        id[Val] = (int)(e + 1);
+        id[Val] = (int)(e + 1); // e是代码段的指针
         next(); i = 0;
-        while (tk != ')') {
+        while (tk != ')') { // 循环处理函数参数
           ty = INT;
           if (tk == Int) next();
           else if (tk == Char) { next(); ty = CHAR; }
@@ -420,6 +438,7 @@ int main(int argc, char **argv)
         if (tk != '{') { printf("%d: bad function definition\n", line); return -1; }
         loc = ++i;
         next();
+        // 解析函数局部变量声明
         while (tk == Int || tk == Char) {
           bt = (tk == Int) ? INT : CHAR;
           next();
@@ -436,8 +455,14 @@ int main(int argc, char **argv)
           }
           next();
         }
+        // 解析剩下的语句
+        // 之所以说剩下的，是因为局部变量声明必须放在最前面
+        // 后面跟着语句
+        // ENT是进入函数之前的动作：
+        // 保存BP，为局部变量开辟栈空间
+        // i - loc是局部变量的数量
         *++e = ENT; *++e = i - loc;
-        while (tk != '}') stmt();
+        while (tk != '}') stmt();   // 解析各种语句
         *++e = LEV;
         id = sym; // unwind symbol table locals
         while (id[Tk]) {
@@ -450,6 +475,7 @@ int main(int argc, char **argv)
         }
       }
       else {
+        // 保存全局变量生命
         id[Class] = Glo;
         id[Val] = (int)data;
         data = data + sizeof(int);
@@ -481,14 +507,26 @@ int main(int argc, char **argv)
          "OPEN,READ,CLOS,PRTF,MALC,FREE,MSET,MCMP,EXIT,"[i * 5]);
       if (i <= ADJ) printf(" %d\n", *pc); else printf("\n");
     }
+    // 载入本地地址：将bp + 参数 的值放到eax
     if      (i == LEA) a = (int)(bp + *pc++);                             // load local address
+    // 载入全局地址或立即数：将IMM的参数，pc++是指针，解引用再保存到eax
     else if (i == IMM) a = *pc++;                                         // load global address or immediate
+    // 跳转：*pc即JMP的参数，是一个地址值，赋值给pc
     else if (i == JMP) pc = (int *)*pc;                                   // jump
+    // 跳转到子函数：
+    // 1. 将下一个指令即PC寄存器+1的值入栈
+    // 2. 将当前PC寄存器的值解引用，再赋值给PC
     else if (i == JSR) { *--sp = (int)(pc + 1); pc = (int *)*pc; }        // jump to subroutine
+    // 如果是0则跳转
     else if (i == BZ)  pc = a ? pc + 1 : (int *)*pc;                      // branch if zero
     else if (i == BNZ) pc = a ? (int *)*pc : pc + 1;                      // branch if not zero
+    // 开始一个函数:
+    // 1. bp入栈 2. bp=sp 
+    // 2. 根据*pc++的值在栈上开辟局部变量的存储空间, sp[0]就指向第一个参数 
     else if (i == ENT) { *--sp = (int)bp; bp = sp; sp = sp - *pc++; }     // enter subroutine
+    // 调整栈：栈指针+PC寄存器值的解引用(即ADJ的参数)，也就是收缩栈
     else if (i == ADJ) sp = sp + *pc++;                                   // stack adjust
+    // 从一个子函数中退出
     else if (i == LEV) { sp = bp; bp = (int *)*sp++; pc = (int *)*sp++; } // leave subroutine
     else if (i == LI)  a = *(int *)a;                                     // load int
     else if (i == LC)  a = *(char *)a;                                    // load char

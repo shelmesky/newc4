@@ -1,0 +1,33 @@
+1: int main() {
+2:     int a;
+3:     int b;
+4:     int c;
+5:     a = 1;
+    ENT  3
+    LEA  -1
+    PSH 
+    IMM  1
+    SI  
+6:     if(a==1) {
+    LEA  -1 // 将bp+*pc++保存到EAX，即local address保存到EAX
+    LI      // 将EAX保存的地址解引用，保存到EAX
+    PSH     // 将EAX入栈 
+    IMM  1  // 将立即数1保存到EAX
+    EQ      // 对比栈(*sp++)和EAX，结果保存到EAX
+    BZ   0  // 如果EAX的值是非0,则跳转到下一条指令，否则跳转到
+7:         printf("111111\n");
+    IMM  -137773040
+    PSH 
+    PRTF
+    ADJ  1
+8:     } else {
+    JMP  0
+9:         printf("222222\n");
+    IMM  -137773032
+    PSH 
+    PRTF
+    ADJ  1
+10:     }
+11: }
+    LEV 
+
